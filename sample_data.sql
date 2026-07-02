@@ -68,3 +68,7 @@ INSERT INTO cooler_socket_support (part_id, socket) VALUES
 -- 케이스 지원 폼팩터
 INSERT INTO case_formfactor_support (part_id, form_factor) VALUES
  (14,'ATX'),(14,'M-ATX'),(15,'ITX');
+
+-- 데모 재현성: 출시일을 항상 '최근 6개월'로 설정
+-- (호환성 쿼리의 '최근 2년(release_date)' 필터를 언제 실행해도 통과하도록)
+UPDATE parts SET release_date = DATE_SUB(CURDATE(), INTERVAL 6 MONTH);

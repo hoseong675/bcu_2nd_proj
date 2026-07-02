@@ -15,10 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 견적 추천 오케스트레이션 (파이프라인 전체를 잇는 계층).
@@ -67,8 +67,8 @@ public class QuoteService {
         req.setStatus("처리중");
         surveyRequestRepository.save(req);
 
-        // 3) 프롬프트 구성 + Gemini 3종 견적 생성
-        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool));
+        // 3) 프롬프트 구성 + Gemini 3종 견적 생성 (후보 id enum 으로 제약)
+        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool), pool);
 
         // 4) 검증(후보군 내 part_id 인지) + 저장 + 응답 구성
         List<QuoteResponse.BuildView> views = new ArrayList<>();
@@ -106,8 +106,22 @@ public class QuoteService {
     }
 
     private List<Long> orderedIds(GeminiBuild b) {
-        return Arrays.asList(b.cpuPartId(), b.gpuPartId(), b.mainboardPartId(), b.ramPartId(),
-                b.psuPartId(), b.coolerPartId(), b.storagePartId(), b.casePartId());
+        return Stream.of(b.cpuPartId(), b.gpuPartId(), b.mainboardPartId(), b.ramPartId(),
+                        b.psuPartId(), b.coolerPartId(), b.storagePartId(), b.casePartId())
+                .map(this::parseId)
+                .toList();
+    }
+
+    /** enum 제약 하에서도 방어적으로 파싱 (숫자 아니면 null → 가드레일이 제외) */
+    private Long parseId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(raw.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private String buildPrompt(SurveyRequestDto dto, List<CandidatePart> pool) {
