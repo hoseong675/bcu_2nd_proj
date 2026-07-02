@@ -10,6 +10,8 @@ public record QuoteResponse(
     public record BuildView(
             String tier,
             Integer totalPrice,
+            boolean compatible,          // 2차 가드레일: 조합 호환성 재검증 결과
+            List<String> warnings,       // 호환성 위반 목록 (compatible=false 일 때)
             String reason,
             List<ItemView> items
     ) {}

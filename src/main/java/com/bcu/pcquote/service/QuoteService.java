@@ -8,9 +8,12 @@ import com.bcu.pcquote.dto.GeminiBuild;
 import com.bcu.pcquote.dto.QuoteResponse;
 import com.bcu.pcquote.dto.SurveyRequestDto;
 import com.bcu.pcquote.repository.CompatibilityRepository;
+import com.bcu.pcquote.repository.CompatibilityValidator;
 import com.bcu.pcquote.repository.QuoteItemRepository;
 import com.bcu.pcquote.repository.QuoteRepository;
 import com.bcu.pcquote.repository.SurveyRequestRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * 견적 추천 오케스트레이션 (파이프라인 전체를 잇는 계층).
@@ -31,18 +33,23 @@ public class QuoteService {
             "CPU", 1, "GPU", 2, "MAINBOARD", 3, "RAM", 4,
             "PSU", 5, "COOLER", 6, "STORAGE", 7, "CASE", 8);
 
+    private static final Logger log = LoggerFactory.getLogger(QuoteService.class);
+
     private final CompatibilityRepository compatibilityRepository;
+    private final CompatibilityValidator compatibilityValidator;
     private final GeminiService geminiService;
     private final SurveyRequestRepository surveyRequestRepository;
     private final QuoteRepository quoteRepository;
     private final QuoteItemRepository quoteItemRepository;
 
     public QuoteService(CompatibilityRepository compatibilityRepository,
+                        CompatibilityValidator compatibilityValidator,
                         GeminiService geminiService,
                         SurveyRequestRepository surveyRequestRepository,
                         QuoteRepository quoteRepository,
                         QuoteItemRepository quoteItemRepository) {
         this.compatibilityRepository = compatibilityRepository;
+        this.compatibilityValidator = compatibilityValidator;
         this.geminiService = geminiService;
         this.surveyRequestRepository = surveyRequestRepository;
         this.quoteRepository = quoteRepository;
@@ -70,9 +77,18 @@ public class QuoteService {
         // 3) 프롬프트 구성 + Gemini 3종 견적 생성 (후보 id enum 으로 제약)
         List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool), pool);
 
-        // 4) 검증(후보군 내 part_id 인지) + 저장 + 응답 구성
+        // 4) 1차 가드레일(후보군 내 part_id) 저장 + 2차 가드레일(조합 호환성 재검증) + 응답 구성
         List<QuoteResponse.BuildView> views = new ArrayList<>();
         for (GeminiBuild b : builds) {
+            Long cpuId = parseId(b.cpuPartId());
+            Long gpuId = parseId(b.gpuPartId());
+            Long mbId = parseId(b.mainboardPartId());
+            Long ramId = parseId(b.ramPartId());
+            Long psuId = parseId(b.psuPartId());
+            Long coolerId = parseId(b.coolerPartId());
+            Long storageId = parseId(b.storagePartId());
+            Long caseId = parseId(b.casePartId());
+
             Quote quote = new Quote();
             quote.setRequestId(req.getRequestId());
             quote.setTier(b.tier());
@@ -82,10 +98,11 @@ public class QuoteService {
             quoteRepository.save(quote);
 
             List<QuoteResponse.ItemView> items = new ArrayList<>();
-            for (Long partId : orderedIds(b)) {
-                CandidatePart cp = (partId == null) ? null : byId.get(partId);
+            for (Long partId : List.of(cpuId, gpuId, mbId, ramId, psuId, coolerId, storageId, caseId)
+                    .stream().filter(java.util.Objects::nonNull).toList()) {
+                CandidatePart cp = byId.get(partId);
                 if (cp == null) {
-                    continue; // 후보군에 없는 id → 가드레일로 제외
+                    continue; // 1차 가드레일: 후보군에 없는 id → 제외
                 }
                 QuoteItem qi = new QuoteItem();
                 qi.setQuoteId(quote.getQuoteId());
@@ -97,19 +114,23 @@ public class QuoteService {
                 String name = (cp.manufacturer() == null ? "" : cp.manufacturer() + " ") + cp.modelName();
                 items.add(new QuoteResponse.ItemView(cp.category(), partId, name, cp.price()));
             }
-            views.add(new QuoteResponse.BuildView(b.tier(), b.totalPrice(), b.reason(), items));
+
+            // 2차 가드레일: 조합 호환성 재검증 (시연2 규칙)
+            List<String> warnings = compatibilityValidator.findViolations(
+                    cpuId, gpuId, mbId, ramId, psuId, coolerId, caseId);
+            boolean compatible = warnings.isEmpty();
+            if (!compatible) {
+                log.warn("[{}] 견적 호환성 위반 (requestId={}, quoteId={}): {}",
+                        b.tier(), req.getRequestId(), quote.getQuoteId(), warnings);
+            }
+
+            views.add(new QuoteResponse.BuildView(
+                    b.tier(), b.totalPrice(), compatible, warnings, b.reason(), items));
         }
 
         req.setStatus("완료");
         surveyRequestRepository.save(req);
         return new QuoteResponse(req.getRequestId(), views);
-    }
-
-    private List<Long> orderedIds(GeminiBuild b) {
-        return Stream.of(b.cpuPartId(), b.gpuPartId(), b.mainboardPartId(), b.ramPartId(),
-                        b.psuPartId(), b.coolerPartId(), b.storagePartId(), b.casePartId())
-                .map(this::parseId)
-                .toList();
     }
 
     /** enum 제약 하에서도 방어적으로 파싱 (숫자 아니면 null → 가드레일이 제외) */
