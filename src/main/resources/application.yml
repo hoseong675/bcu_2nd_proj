@@ -19,5 +19,13 @@ gemini:
   api-key: ${GEMINI_API_KEY:}
   model: gemini-2.5-flash
 
+# 네이버 쇼핑 검색 API (가격 배치) - 자격증명은 환경변수로 주입
+naver:
+  base-url: https://openapi.naver.com
+  client-id: ${NAVER_CLIENT_ID:}
+  client-secret: ${NAVER_CLIENT_SECRET:}
+  # 새벽 배치 cron (기본 매일 04:00). 빈 값이면 스케줄 비활성.
+  batch-cron: ${NAVER_BATCH_CRON:0 0 4 * * *}
+
 server:
   port: 8080
