@@ -75,7 +75,8 @@ public class QuoteService {
         surveyRequestRepository.save(req);
 
         // 3) 프롬프트 구성 + Gemini 3종 견적 생성 (후보 id enum 으로 제약)
-        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool), pool);
+        boolean igpuOnly = Boolean.TRUE.equals(dto.integratedGraphicsOnly());
+        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool, igpuOnly), pool, igpuOnly);
 
         // 4) 1차 가드레일(후보군 내 part_id) 저장 + 2차 가드레일(조합 호환성 재검증) + 응답 구성
         List<QuoteResponse.BuildView> views = new ArrayList<>();
@@ -98,8 +99,9 @@ public class QuoteService {
 
             List<QuoteResponse.ItemView> items = new ArrayList<>();
             int actualTotal = 0;           // 캐싱 실가격 기준 합계 (LLM 추정값 신뢰 X)
-            for (Long partId : List.of(cpuId, gpuId, mbId, ramId, psuId, coolerId, storageId, caseId)
-                    .stream().filter(java.util.Objects::nonNull).toList()) {
+            for (Long partId : java.util.stream.Stream.of(
+                        cpuId, gpuId, mbId, ramId, psuId, coolerId, storageId, caseId)
+                    .filter(java.util.Objects::nonNull).toList()) {
                 CandidatePart cp = byId.get(partId);
                 if (cp == null) {
                     continue; // 1차 가드레일: 후보군에 없는 id → 제외
@@ -157,7 +159,7 @@ public class QuoteService {
         }
     }
 
-    private String buildPrompt(SurveyRequestDto dto, List<CandidatePart> pool) {
+    private String buildPrompt(SurveyRequestDto dto, List<CandidatePart> pool, boolean igpuOnly) {
         StringBuilder sb = new StringBuilder();
         sb.append("## 사용자 요구사항\n")
                 .append("- 용도: ").append(dto.purpose()).append('\n')
@@ -179,7 +181,14 @@ public class QuoteService {
             }
         }
         sb.append("\n## 지시\n예산 내에서 가성비/안정성/최고성능 3종 견적을 구성하라. "
-                + "각 부품은 후보군의 part_id 로 지정하고, total_price 와 자연어 reason 을 포함하라.");
+                + "각 부품은 후보군의 part_id 로 지정하고, total_price 와 자연어 reason 을 포함하라.\n");
+        if (igpuOnly) {
+            sb.append("**이번 요청은 외장 그래픽카드를 사용하지 않는다. gpu_part_id 는 절대 지정하지 말고, "
+                    + "반드시 내장그래픽이 있는 CPU를 선택해 내장그래픽만으로 구성하라. 그 이유를 reason 에 밝혀라.**");
+        } else {
+            sb.append("외장 그래픽카드는 선택이다. 사무/일반 용도이거나 예산이 빠듯하면 내장그래픽이 있는 CPU를 골라 "
+                    + "gpu_part_id 없이(외장 GPU 미포함) 구성하는 것도 고려하라.");
+        }
         return sb.toString();
     }
 }

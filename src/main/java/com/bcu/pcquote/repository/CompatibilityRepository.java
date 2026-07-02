@@ -27,7 +27,8 @@ public class CompatibilityRepository {
 
     private static final String SQL = """
             SELECT 'CPU' AS category, p.part_id, p.manufacturer, p.model_name,
-                   CONCAT('소켓 ', s.socket, ', ', s.cores, '코어/', s.threads, '스레드, TDP ', s.tdp_watt, 'W') AS spec, pr.price
+                   CONCAT('소켓 ', s.socket, ', ', s.cores, '코어/', s.threads, '스레드, TDP ', s.tdp_watt, 'W',
+                          IF(s.has_igpu, ', 내장그래픽 있음(외장GPU 없이 구성 가능)', ', 내장그래픽 없음(외장GPU 필수)')) AS spec, pr.price
             FROM parts p JOIN cpu_specs s ON s.part_id = p.part_id
             """ + PRICE_JOIN + " WHERE " + RECENT + """
             UNION ALL

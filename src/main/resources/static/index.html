@@ -77,6 +77,10 @@
           <label>상세 요구사항</label>
           <textarea name="detailRequirement" rows="2" placeholder="예) 4K 영상편집, 소음 적을수록 좋음">1440p 고주사율 게이밍</textarea>
         </div>
+        <label style="font-weight:400; display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="igpu" style="width:auto;">
+          내장 그래픽만 사용 (외장 그래픽카드 제외)
+        </label>
         <button type="submit" id="btn">견적 추천받기</button>
       </form>
     </div>
@@ -98,7 +102,8 @@
         resolutionTarget: fd.get('resolutionTarget'),
         budgetMin: Number(fd.get('budgetMin')),
         budgetMax: Number(fd.get('budgetMax')),
-        detailRequirement: fd.get('detailRequirement')
+        detailRequirement: fd.get('detailRequirement'),
+        integratedGraphicsOnly: document.getElementById('igpu').checked
       };
       btn.disabled = true;
       result.innerHTML = '<div class="msg">AI가 견적을 구성 중입니다… (수 초 소요)</div>';

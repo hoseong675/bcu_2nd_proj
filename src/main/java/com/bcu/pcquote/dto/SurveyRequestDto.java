@@ -7,5 +7,6 @@ public record SurveyRequestDto(
         Integer budgetMin,
         Integer budgetMax,
         String resolutionTarget,
-        String detailRequirement
+        String detailRequirement,
+        Boolean integratedGraphicsOnly   // true 면 외장 GPU 없이 CPU 내장그래픽으로만 구성
 ) {}

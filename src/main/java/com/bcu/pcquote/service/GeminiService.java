@@ -49,7 +49,7 @@ public class GeminiService {
         this.model = model;
     }
 
-    public List<GeminiBuild> generateBuilds(String userPrompt, List<CandidatePart> pool) {
+    public List<GeminiBuild> generateBuilds(String userPrompt, List<CandidatePart> pool, boolean integratedGraphicsOnly) {
         // 카테고리별 후보 part_id (문자열) → 스키마 enum 제약에 사용
         Map<String, List<String>> idsByCategory = pool.stream().collect(Collectors.groupingBy(
                 CandidatePart::category,
@@ -58,11 +58,12 @@ public class GeminiService {
         Map<String, Object> body = Map.of(
                 "system_instruction", Map.of("parts", List.of(Map.of("text",
                         "너는 PC 견적 전문가다. 반드시 후보군 목록에 있는 part_id 만 사용하고, "
-                        + "소켓/램규격/폼팩터/GPU길이/쿨러높이/파워 권장출력 호환성을 지켜라. 예산을 초과하지 마라."))),
+                        + "소켓/램규격/폼팩터/GPU길이/쿨러높이/파워 권장출력 호환성을 지켜라. 예산을 초과하지 마라. "
+                        + "외장 그래픽카드(gpu_part_id)는 선택이며, 내장그래픽이 있는 CPU는 GPU 없이 구성할 수 있다."))),
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", userPrompt)))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
-                        "responseSchema", responseSchema(idsByCategory),
+                        "responseSchema", responseSchema(idsByCategory, integratedGraphicsOnly),
                         "thinkingConfig", Map.of("thinkingBudget", 0)
                 )
         );
@@ -85,15 +86,21 @@ public class GeminiService {
      * builds[] 각 항목 = tier + 8개 부품(part_id enum) + total_price + reason.
      * 각 part_id 는 해당 카테고리의 실제 후보 id 만 허용하는 STRING enum 으로 하드 제약한다.
      */
-    private Map<String, Object> responseSchema(Map<String, List<String>> idsByCategory) {
+    private Map<String, Object> responseSchema(Map<String, List<String>> idsByCategory,
+                                               boolean integratedGraphicsOnly) {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("tier", Map.of("type", "STRING", "enum", List.of("가성비", "안정성", "최고성능")));
 
         FIELD_TO_CATEGORY.forEach((field, category) -> {
+            boolean isGpu = field.equals("gpu_part_id");
+            if (isGpu && integratedGraphicsOnly) {
+                return; // 내장그래픽만: GPU 필드 자체를 제거해 선택 불가
+            }
             List<String> ids = idsByCategory.get(category);
             if (ids == null || ids.isEmpty()) {
-                // 후보 없음: 제약 불가 → 일반 문자열 (해당 슬롯은 비게 됨)
                 props.put(field, Map.of("type", "STRING"));
+            } else if (isGpu) {
+                props.put(field, Map.of("type", "STRING", "enum", ids, "nullable", true)); // 외장 GPU 는 선택
             } else {
                 props.put(field, Map.of("type", "STRING", "enum", ids));
             }
@@ -102,10 +109,14 @@ public class GeminiService {
         props.put("total_price", Map.of("type", "INTEGER"));
         props.put("reason", Map.of("type", "STRING"));
 
+        // gpu_part_id 는 선택이므로 required 에서 제외
+        List<String> required = new ArrayList<>(props.keySet());
+        required.remove("gpu_part_id");
+
         Map<String, Object> item = Map.of(
                 "type", "OBJECT",
                 "properties", props,
-                "required", new ArrayList<>(props.keySet())
+                "required", required
         );
         return Map.of(
                 "type", "OBJECT",
