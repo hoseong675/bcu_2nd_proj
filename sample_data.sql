@@ -108,3 +108,6 @@ INSERT INTO case_formfactor_support (part_id, form_factor) VALUES
 
 -- 데모 재현성: 출시일을 항상 '최근 6개월'로 (최근 2년 필터 통과 보장)
 UPDATE parts SET release_date = DATE_SUB(CURDATE(), INTERVAL 6 MONTH);
+
+-- 가격조회 정밀 쿼리 오버라이드 예시 (악세서리/변형모델 노이즈 회피)
+UPDATE parts SET naver_query = '지포스 RTX 4060 8GB' WHERE part_id = 9;

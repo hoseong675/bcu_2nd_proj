@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS parts (
     category_id  INT          NOT NULL,
     manufacturer VARCHAR(100) NULL,
     model_name   VARCHAR(200) NOT NULL,
+    naver_query  VARCHAR(255) NULL,     -- 가격조회용 정밀 검색어 오버라이드(없으면 model_name 사용)
     release_date DATE         NULL,     -- 최근 2년 필터용
     is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -92,12 +92,12 @@ public class QuoteService {
             Quote quote = new Quote();
             quote.setRequestId(req.getRequestId());
             quote.setTier(b.tier());
-            quote.setTotalPrice(b.totalPrice());
             quote.setReason(b.reason());
             quote.setAiModel("gemini-2.5-flash");
-            quoteRepository.save(quote);
+            quoteRepository.save(quote);   // quote_id 확보
 
             List<QuoteResponse.ItemView> items = new ArrayList<>();
+            int actualTotal = 0;           // 캐싱 실가격 기준 합계 (LLM 추정값 신뢰 X)
             for (Long partId : List.of(cpuId, gpuId, mbId, ramId, psuId, coolerId, storageId, caseId)
                     .stream().filter(java.util.Objects::nonNull).toList()) {
                 CandidatePart cp = byId.get(partId);
@@ -110,9 +110,21 @@ public class QuoteService {
                 qi.setCategoryId(CATEGORY_ID.get(cp.category()));
                 qi.setUnitPrice(cp.price());
                 quoteItemRepository.save(qi);
+                if (cp.price() != null) {
+                    actualTotal += cp.price();
+                }
 
                 String name = (cp.manufacturer() == null ? "" : cp.manufacturer() + " ") + cp.modelName();
                 items.add(new QuoteResponse.ItemView(cp.category(), partId, name, cp.price()));
+            }
+            quote.setTotalPrice(actualTotal);   // 실가격 합계로 저장
+            quoteRepository.save(quote);
+
+            // 예산 후처리: 실제 합계가 예산 상한을 넘는지
+            boolean withinBudget = dto.budgetMax() == null || actualTotal <= dto.budgetMax();
+            if (!withinBudget) {
+                log.warn("[{}] 예산 초과 (requestId={}): 합계 {}원 > 예산 {}원",
+                        b.tier(), req.getRequestId(), actualTotal, dto.budgetMax());
             }
 
             // 2차 가드레일: 조합 호환성 재검증 (시연2 규칙)
@@ -125,7 +137,7 @@ public class QuoteService {
             }
 
             views.add(new QuoteResponse.BuildView(
-                    b.tier(), b.totalPrice(), compatible, warnings, b.reason(), items));
+                    b.tier(), actualTotal, withinBudget, compatible, warnings, b.reason(), items));
         }
 
         req.setStatus("완료");

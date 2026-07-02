@@ -33,11 +33,13 @@ public class NaverShoppingClient {
 
     /**
      * 부품명으로 검색해 대표 가격을 찾는다. 없으면 empty.
-     * 전략: 관련도순(sim) 상위 3개 중 최저가.
-     *   - sim 상위는 실제 해당 제품군이라 짝퉁/악세서리 최저가 노이즈를 피함
-     *   - 그 중 최저가를 취해 단일 고가 이상치를 완화
+     * 전략: 관련도순(sim) 상위 5개에서 극단 저가(악세서리 "~용" 등) 제거 후 최저가.
+     *   1) sim 상위는 실제 해당 제품군 → 짝퉁/무관 최저가 배제
+     *   2) 상위 5개 중앙값의 30% 미만은 악세서리로 보고 제외
+     *   3) 남은 것 중 최저가
      * (한계: 이름 기반 퍼지 매칭이라 변형모델/번들이 섞일 수 있음.
-     *  운영 단계에서는 부품별 상품ID를 매핑하는 방식이 정확함.)
+     *  정확도가 필요하면 parts.naver_query 로 부품별 정밀 쿼리를 지정하거나
+     *  상품ID 매핑을 사용해야 함.)
      */
     public Optional<NaverPrice> findPrice(String query) {
         String raw = rest.get()
@@ -53,11 +55,25 @@ public class NaverShoppingClient {
         if (resp.items() == null) {
             return Optional.empty();
         }
-        return resp.items().stream()
+        List<NaverPrice> top = resp.items().stream()
                 .map(Item::toPrice)
                 .filter(p -> p != null && p.price() > 0)
-                .limit(3)                                       // 관련도 상위 3개
+                .limit(5)                                       // 관련도 상위 5개
+                .toList();
+        if (top.isEmpty()) {
+            return Optional.empty();
+        }
+        double median = median(top.stream().map(NaverPrice::price).sorted().toList());
+        double floor = median * 0.3;                            // 극단 저가(악세서리) 컷
+        return top.stream()
+                .filter(p -> p.price() >= floor)
                 .min(Comparator.comparingInt(NaverPrice::price));
+    }
+
+    private double median(List<Integer> sorted) {
+        int n = sorted.size();
+        return (n % 2 == 1) ? sorted.get(n / 2)
+                : (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2.0;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

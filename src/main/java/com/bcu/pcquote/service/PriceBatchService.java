@@ -38,14 +38,15 @@ public class PriceBatchService {
     }
 
     public BatchResult run() {
-        List<Map<String, Object>> parts =
-                jdbc.queryForList("SELECT part_id, model_name FROM parts WHERE is_active = 1");
+        // naver_query 오버라이드가 있으면 우선 사용(정밀 큐레이션), 없으면 model_name
+        List<Map<String, Object>> parts = jdbc.queryForList(
+                "SELECT part_id, COALESCE(naver_query, model_name) AS query FROM parts WHERE is_active = 1");
 
         int updated = 0;
         int failed = 0;
         for (Map<String, Object> p : parts) {
             Long partId = ((Number) p.get("part_id")).longValue();
-            String name = (String) p.get("model_name");
+            String name = (String) p.get("query");
             try {
                 Optional<NaverPrice> price = naver.findPrice(name);
                 if (price.isPresent()) {
