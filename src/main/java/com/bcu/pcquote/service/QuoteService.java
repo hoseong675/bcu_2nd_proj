@@ -18,8 +18,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -74,8 +76,8 @@ public class QuoteService {
         req.setStatus("처리중");
         surveyRequestRepository.save(req);
 
-        // 3) 프롬프트 구성 + Gemini 견적 생성 (후보 id enum 으로 제약)
-        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool), pool);
+        // 3) 견적 생성 + 2차 호환성 검증 통과분만 확보 (위반 조합은 재구성/제외 → 추천 안 함)
+        List<GeminiBuild> builds = generateCompatibleBuilds(dto, pool);
 
         // 4) 1차 가드레일(후보군 내 part_id) 저장 + 2차 가드레일(조합 호환성 재검증) + 응답 구성
         List<QuoteResponse.BuildView> views = new ArrayList<>();
@@ -144,6 +146,51 @@ public class QuoteService {
         req.setStatus("완료");
         surveyRequestRepository.save(req);
         return new QuoteResponse(req.getRequestId(), views);
+    }
+
+    /**
+     * 견적을 생성하고 2차 호환성 검증을 통과한 것만 모은다.
+     * 위반 견적이 있으면 그 위반 내용을 피드백으로 붙여 최대 3회까지 재구성을 요청하고,
+     * 끝까지 호환되지 않는 견적은 응답에서 제외한다(추천하지 않음).
+     */
+    private List<GeminiBuild> generateCompatibleBuilds(SurveyRequestDto dto, List<CandidatePart> pool) {
+        String basePrompt = buildPrompt(dto, pool);
+        List<GeminiBuild> accepted = new ArrayList<>();
+        Set<String> acceptedTiers = new HashSet<>();
+        StringBuilder feedback = new StringBuilder();
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            List<GeminiBuild> builds = geminiService.generateBuilds(basePrompt + feedback, pool);
+            List<String> problems = new ArrayList<>();
+            for (GeminiBuild b : builds) {
+                if (b.tier() == null || acceptedTiers.contains(b.tier())) {
+                    continue;
+                }
+                List<String> violations = validateBuild(b);
+                if (violations.isEmpty()) {
+                    accepted.add(b);
+                    acceptedTiers.add(b.tier());
+                } else {
+                    problems.add(b.tier() + " → " + String.join(", ", violations));
+                }
+            }
+            if (problems.isEmpty() || acceptedTiers.size() >= 4) {
+                break;
+            }
+            log.warn("호환성 위반으로 재구성 {}/3: {}", attempt, problems);
+            feedback.append("\n\n## 직전 시도 오류 (반드시 수정)\n")
+                    .append("아래 견적은 부품 호환성 위반으로 거부되었다. 서로 완벽히 호환되는 조합으로 다시 구성하라:\n- ")
+                    .append(String.join("\n- ", problems));
+        }
+        return accepted;
+    }
+
+    /** 한 견적의 조합 호환성 위반 목록 (빈 목록이면 호환 OK) */
+    private List<String> validateBuild(GeminiBuild b) {
+        return compatibilityValidator.findViolations(
+                parseId(b.cpuPartId()), parseId(b.gpuPartId()), parseId(b.mainboardPartId()),
+                parseId(b.ramPartId()), parseId(b.psuPartId()), parseId(b.coolerPartId()),
+                parseId(b.casePartId()));
     }
 
     /** enum 제약 하에서도 방어적으로 파싱 (숫자 아니면 null → 가드레일이 제외) */
