@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI PC 견적 추천</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; margin: 0;
+           background: #f4f5f7; color: #222; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 24px 16px 60px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .sub { color: #777; font-size: 13px; margin-bottom: 20px; }
+    .card { background: #fff; border: 1px solid #e3e5e8; border-radius: 10px; padding: 18px; }
+    form { display: grid; gap: 12px; }
+    label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px; }
+    input, select, textarea { width: 100%; padding: 9px 10px; border: 1px solid #ccd0d5;
+           border-radius: 7px; font-size: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { background: #2b6cff; color: #fff; border: 0; padding: 12px; border-radius: 8px;
+             font-size: 15px; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    #result { margin-top: 24px; display: grid; gap: 16px; }
+    .build { background: #fff; border: 1px solid #e3e5e8; border-radius: 10px; padding: 16px; }
+    .build h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+    .total { font-size: 18px; font-weight: 800; }
+    .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+    .ok { background: #e5f6ec; color: #137a3e; }
+    .warn { background: #fdecec; color: #c0392b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    td { padding: 6px 4px; border-bottom: 1px solid #f0f0f0; }
+    td.cat { color: #888; width: 90px; }
+    td.price { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .reason { margin-top: 10px; font-size: 13px; color: #555; background: #f8f9fb;
+              padding: 10px; border-radius: 7px; line-height: 1.5; }
+    .msg { text-align: center; color: #888; padding: 20px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>AI 기반 커스텀 PC 견적 추천</h1>
+    <div class="sub">요구사항을 입력하면 호환성 검증을 거친 3종 견적(가성비·안정성·최고성능)을 추천합니다.</div>
+
+    <div class="card">
+      <form id="f">
+        <div class="row">
+          <div>
+            <label>용도</label>
+            <select name="purpose">
+              <option value="게이밍">게이밍</option>
+              <option value="영상편집">영상편집</option>
+              <option value="사무">사무</option>
+              <option value="AI">AI</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+          <div>
+            <label>목표 해상도</label>
+            <select name="resolutionTarget">
+              <option value="1080p">1080p</option>
+              <option value="1440p" selected>1440p</option>
+              <option value="4K">4K</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>예산 최소 (원)</label>
+            <input type="number" name="budgetMin" value="1200000" step="100000">
+          </div>
+          <div>
+            <label>예산 최대 (원)</label>
+            <input type="number" name="budgetMax" value="2000000" step="100000">
+          </div>
+        </div>
+        <div>
+          <label>상세 요구사항</label>
+          <textarea name="detailRequirement" rows="2" placeholder="예) 4K 영상편집, 소음 적을수록 좋음">1440p 고주사율 게이밍</textarea>
+        </div>
+        <button type="submit" id="btn">견적 추천받기</button>
+      </form>
+    </div>
+
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const f = document.getElementById('f');
+    const btn = document.getElementById('btn');
+    const result = document.getElementById('result');
+
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(f);
+      const body = {
+        userId: 1,
+        purpose: fd.get('purpose'),
+        resolutionTarget: fd.get('resolutionTarget'),
+        budgetMin: Number(fd.get('budgetMin')),
+        budgetMax: Number(fd.get('budgetMax')),
+        detailRequirement: fd.get('detailRequirement')
+      };
+      btn.disabled = true;
+      result.innerHTML = '<div class="msg">AI가 견적을 구성 중입니다… (수 초 소요)</div>';
+      try {
+        const res = await fetch('/api/quotes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        render(await res.json());
+      } catch (err) {
+        result.innerHTML = '<div class="msg">오류가 발생했습니다: ' + err.message + '</div>';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    const won = (n) => n == null ? '-' : n.toLocaleString('ko-KR') + '원';
+
+    function render(data) {
+      if (!data.builds || !data.builds.length) {
+        result.innerHTML = '<div class="msg">추천 결과가 없습니다.</div>';
+        return;
+      }
+      result.innerHTML = data.builds.map(b => `
+        <div class="build">
+          <h3>
+            <span>${b.tier}</span>
+            <span class="badge ${b.withinBudget ? 'ok' : 'warn'}">${b.withinBudget ? '예산 내' : '예산 초과'}</span>
+            <span class="badge ${b.compatible ? 'ok' : 'warn'}">${b.compatible ? '호환 OK' : '호환 경고'}</span>
+          </h3>
+          <div class="total">${won(b.totalPrice)}</div>
+          <table>
+            ${b.items.map(it => `
+              <tr>
+                <td class="cat">${it.category}</td>
+                <td>${it.name}</td>
+                <td class="price">${won(it.price)}</td>
+              </tr>`).join('')}
+          </table>
+          ${b.warnings && b.warnings.length ? `<div class="reason">⚠️ ${b.warnings.join(', ')}</div>` : ''}
+          <div class="reason">${b.reason || ''}</div>
+        </div>
+      `).join('');
+    }
+  </script>
+</body>
+</html>
