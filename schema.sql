@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS part_prices (
 CREATE TABLE IF NOT EXISTS quotes (
     quote_id    BIGINT      NOT NULL AUTO_INCREMENT,
     request_id  BIGINT      NOT NULL,
-    tier        ENUM('가성비','안정성','최고성능') NOT NULL,
+    tier        ENUM('가성비','안정성','최고성능','내장그래픽') NOT NULL,
     total_price INT         NULL,
     reason      TEXT        NULL,       -- AI 자연어 추천 사유
     ai_model    VARCHAR(50) NULL,       -- gemini-2.5-flash 등

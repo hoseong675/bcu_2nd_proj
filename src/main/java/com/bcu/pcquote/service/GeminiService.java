@@ -36,20 +36,25 @@ public class GeminiService {
         put("case_part_id", "CASE");
     }};
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GeminiService.class);
+
     private final RestClient rest;
     private final ObjectMapper om = new ObjectMapper();
     private final String apiKey;
     private final String model;
+    private final String fallbackModel;
 
     public GeminiService(@Value("${gemini.base-url}") String baseUrl,
                          @Value("${gemini.api-key}") String apiKey,
-                         @Value("${gemini.model}") String model) {
+                         @Value("${gemini.model}") String model,
+                         @Value("${gemini.fallback-model}") String fallbackModel) {
         this.rest = RestClient.builder().baseUrl(baseUrl).build();
         this.apiKey = apiKey;
         this.model = model;
+        this.fallbackModel = fallbackModel;
     }
 
-    public List<GeminiBuild> generateBuilds(String userPrompt, List<CandidatePart> pool, boolean integratedGraphicsOnly) {
+    public List<GeminiBuild> generateBuilds(String userPrompt, List<CandidatePart> pool) {
         // 카테고리별 후보 part_id (문자열) → 스키마 enum 제약에 사용
         Map<String, List<String>> idsByCategory = pool.stream().collect(Collectors.groupingBy(
                 CandidatePart::category,
@@ -63,16 +68,12 @@ public class GeminiService {
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", userPrompt)))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
-                        "responseSchema", responseSchema(idsByCategory, integratedGraphicsOnly),
+                        "responseSchema", responseSchema(idsByCategory),
                         "thinkingConfig", Map.of("thinkingBudget", 0)
                 )
         );
 
-        String raw = rest.post()
-                .uri("/v1beta/models/{model}:generateContent?key={key}", model, apiKey)
-                .body(body)
-                .retrieve()
-                .body(String.class);
+        String raw = callWithRetry(body);
 
         GenResp resp = om.readValue(raw, GenResp.class);
         if (resp.candidates() == null || resp.candidates().isEmpty()) {
@@ -83,19 +84,53 @@ public class GeminiService {
     }
 
     /**
+     * 429/5xx(과부하) 시 지수 백오프로 재시도하고, 소진되면 폴백 모델(flash-lite)로 전환.
+     * 4xx(스키마 오류 등)는 즉시 실패시킨다.
+     */
+    private String callWithRetry(Map<String, Object> body) {
+        RuntimeException last = null;
+        for (String m : List.of(model, fallbackModel)) {
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    return rest.post()
+                            .uri("/v1beta/models/{model}:generateContent?key={key}", m, apiKey)
+                            .body(body)
+                            .retrieve()
+                            .body(String.class);
+                } catch (org.springframework.web.client.RestClientResponseException e) {
+                    int sc = e.getStatusCode().value();
+                    last = e;
+                    if (sc == 429 || sc >= 500) {
+                        log.warn("Gemini {} 호출 실패({}) - 재시도 {}/3", m, sc, attempt);
+                        sleep(400L * attempt);   // 백오프
+                    } else {
+                        throw e;                 // 4xx 는 재시도 무의미
+                    }
+                }
+            }
+        }
+        throw new IllegalStateException("Gemini 호출 실패(재시도/폴백 소진)", last);
+    }
+
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
      * builds[] 각 항목 = tier + 8개 부품(part_id enum) + total_price + reason.
      * 각 part_id 는 해당 카테고리의 실제 후보 id 만 허용하는 STRING enum 으로 하드 제약한다.
      */
-    private Map<String, Object> responseSchema(Map<String, List<String>> idsByCategory,
-                                               boolean integratedGraphicsOnly) {
+    private Map<String, Object> responseSchema(Map<String, List<String>> idsByCategory) {
         Map<String, Object> props = new LinkedHashMap<>();
-        props.put("tier", Map.of("type", "STRING", "enum", List.of("가성비", "안정성", "최고성능")));
+        props.put("tier", Map.of("type", "STRING",
+                "enum", List.of("가성비", "안정성", "최고성능", "내장그래픽")));
 
         FIELD_TO_CATEGORY.forEach((field, category) -> {
             boolean isGpu = field.equals("gpu_part_id");
-            if (isGpu && integratedGraphicsOnly) {
-                return; // 내장그래픽만: GPU 필드 자체를 제거해 선택 불가
-            }
             List<String> ids = idsByCategory.get(category);
             if (ids == null || ids.isEmpty()) {
                 props.put(field, Map.of("type", "STRING"));

@@ -74,9 +74,8 @@ public class QuoteService {
         req.setStatus("처리중");
         surveyRequestRepository.save(req);
 
-        // 3) 프롬프트 구성 + Gemini 3종 견적 생성 (후보 id enum 으로 제약)
-        boolean igpuOnly = Boolean.TRUE.equals(dto.integratedGraphicsOnly());
-        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool, igpuOnly), pool, igpuOnly);
+        // 3) 프롬프트 구성 + Gemini 견적 생성 (후보 id enum 으로 제약)
+        List<GeminiBuild> builds = geminiService.generateBuilds(buildPrompt(dto, pool), pool);
 
         // 4) 1차 가드레일(후보군 내 part_id) 저장 + 2차 가드레일(조합 호환성 재검증) + 응답 구성
         List<QuoteResponse.BuildView> views = new ArrayList<>();
@@ -159,7 +158,7 @@ public class QuoteService {
         }
     }
 
-    private String buildPrompt(SurveyRequestDto dto, List<CandidatePart> pool, boolean igpuOnly) {
+    private String buildPrompt(SurveyRequestDto dto, List<CandidatePart> pool) {
         StringBuilder sb = new StringBuilder();
         sb.append("## 사용자 요구사항\n")
                 .append("- 용도: ").append(dto.purpose()).append('\n')
@@ -180,15 +179,14 @@ public class QuoteService {
                         .append(" | 가격 ").append(c.price() == null ? "미정" : c.price() + "원").append('\n');
             }
         }
-        sb.append("\n## 지시\n예산 내에서 가성비/안정성/최고성능 3종 견적을 구성하라. "
-                + "각 부품은 후보군의 part_id 로 지정하고, total_price 와 자연어 reason 을 포함하라.\n");
-        if (igpuOnly) {
-            sb.append("**이번 요청은 외장 그래픽카드를 사용하지 않는다. gpu_part_id 는 절대 지정하지 말고, "
-                    + "반드시 내장그래픽이 있는 CPU를 선택해 내장그래픽만으로 구성하라. 그 이유를 reason 에 밝혀라.**");
-        } else {
-            sb.append("외장 그래픽카드는 선택이다. 사무/일반 용도이거나 예산이 빠듯하면 내장그래픽이 있는 CPU를 골라 "
-                    + "gpu_part_id 없이(외장 GPU 미포함) 구성하는 것도 고려하라.");
-        }
+        sb.append("\n## 지시\n예산 내에서 아래 4가지 견적을 모두 구성하라. "
+                + "각 부품은 후보군의 part_id 로 지정하고, total_price 와 자연어 reason 을 포함하라.\n"
+                + "1) 가성비 — 외장 그래픽카드 포함, 목적 대비 가장 저렴한 조합\n"
+                + "2) 안정성 — 외장 그래픽카드 포함, 전원부·발열·밸런스가 안정적인 조합\n"
+                + "3) 최고성능 — 외장 그래픽카드 포함, 예산 내 최고 성능\n"
+                + "4) 내장그래픽 — 외장 그래픽카드 없이(gpu_part_id 생략) 내장그래픽이 있는 CPU로만 구성. "
+                + "reason 에는 '내장그래픽이 무엇인지, 어떤 용도(문서/웹/영상감상 등)에 적합하고 게이밍·영상편집엔 부족할 수 있음'을 "
+                + "PC를 잘 모르는 사람도 이해하도록 쉽게 설명하라.");
         return sb.toString();
     }
 }

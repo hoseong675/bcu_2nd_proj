@@ -33,6 +33,8 @@
     td.price { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .reason { margin-top: 10px; font-size: 13px; color: #555; background: #f8f9fb;
               padding: 10px; border-radius: 7px; line-height: 1.5; }
+    .note { margin-top: 10px; font-size: 13px; color: #1a5fb4; background: #eaf2fe;
+            border: 1px solid #cfe0fb; padding: 10px; border-radius: 7px; line-height: 1.5; }
     .msg { text-align: center; color: #888; padding: 20px; }
   </style>
 </head>
@@ -77,10 +79,6 @@
           <label>상세 요구사항</label>
           <textarea name="detailRequirement" rows="2" placeholder="예) 4K 영상편집, 소음 적을수록 좋음">1440p 고주사율 게이밍</textarea>
         </div>
-        <label style="font-weight:400; display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="igpu" style="width:auto;">
-          내장 그래픽만 사용 (외장 그래픽카드 제외)
-        </label>
         <button type="submit" id="btn">견적 추천받기</button>
       </form>
     </div>
@@ -102,8 +100,7 @@
         resolutionTarget: fd.get('resolutionTarget'),
         budgetMin: Number(fd.get('budgetMin')),
         budgetMax: Number(fd.get('budgetMax')),
-        detailRequirement: fd.get('detailRequirement'),
-        integratedGraphicsOnly: document.getElementById('igpu').checked
+        detailRequirement: fd.get('detailRequirement')
       };
       btn.disabled = true;
       result.innerHTML = '<div class="msg">AI가 견적을 구성 중입니다… (수 초 소요)</div>';
@@ -137,6 +134,7 @@
             <span class="badge ${b.compatible ? 'ok' : 'warn'}">${b.compatible ? '호환 OK' : '호환 경고'}</span>
           </h3>
           <div class="total">${won(b.totalPrice)}</div>
+          ${b.tier === '내장그래픽' ? '<div class="note">💡 그래픽카드(외장 GPU) 없이 CPU에 내장된 그래픽만 사용하는 구성입니다. 문서·웹서핑·영상감상 등 가벼운 작업에 적합하고 저렴하지만, 게임·영상편집에는 성능이 부족할 수 있어요.</div>' : ''}
           <table>
             ${b.items.map(it => `
               <tr>

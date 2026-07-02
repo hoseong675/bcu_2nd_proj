@@ -17,7 +17,9 @@ spring:
 gemini:
   base-url: https://generativelanguage.googleapis.com
   api-key: ${GEMINI_API_KEY:}
-  model: gemini-2.5-flash
+  model: ${GEMINI_MODEL:gemini-2.5-flash}
+  # 주 모델 과부하(429/503) 시 폴백
+  fallback-model: ${GEMINI_FALLBACK_MODEL:gemini-2.5-flash-lite}
 
 # 네이버 쇼핑 검색 API (가격 배치) - 자격증명은 환경변수로 주입
 naver:
