@@ -27,5 +27,11 @@ naver:
   # 새벽 배치 cron (기본 매일 04:00). 빈 값이면 스케줄 비활성.
   batch-cron: ${NAVER_BATCH_CRON:0 0 4 * * *}
 
+# 관리자 엔드포인트(/api/admin/**) 보호용 시크릿 - 환경변수로 주입
+admin:
+  token: ${ADMIN_TOKEN:}
+
 server:
   port: 8080
+  # 프록시(Tailscale Funnel) 뒤에서 실제 클라이언트 정보/HTTPS 인식
+  forward-headers-strategy: native
