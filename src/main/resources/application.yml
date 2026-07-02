@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: pcquote
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:3306/pc_quote?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: ${DB_USER:pcquote}
+    password: ${DB_PASSWORD:PcQuote2026!}
+  jpa:
+    hibernate:
+      ddl-auto: none          # 스키마는 schema.sql 로 이미 관리
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+# Google AI Studio (Gemini) 설정 - 키는 반드시 환경변수로 주입
+gemini:
+  base-url: https://generativelanguage.googleapis.com
+  api-key: ${GEMINI_API_KEY:}
+  model: gemini-2.5-flash
+
+server:
+  port: 8080
